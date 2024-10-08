@@ -1,0 +1,14 @@
+__pycache__
+.DS_Store
+.vscode
+unused*/
+vis*/
+output*/
+old*/
+weights/
+calibration_result/
+/data
+/third-party
+/log*
+/GroundingDINO
+Log/

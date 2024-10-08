@@ -1,0 +1,11 @@
+torch
+torchvision
+opencv-contrib-python
+open3d
+pyyaml
+dgl
+h5py
+pyrealsense2
+ipdb
+atomics
+git+https://github.com/xArm-Developer/xArm-Python-SDK.git

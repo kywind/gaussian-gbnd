@@ -6,8 +6,8 @@ import torch
 import open3d as o3d
 from PIL import Image
 
-from real_world.utils.real_env import RealEnv
-from real_world.utils.pcd_utils import get_tabletop_points, visualize_o3d
+from utils.real_env import RealEnv
+from utils.pcd_utils import get_tabletop_points, visualize_o3d
 
 def construct_goal_from_perception():
     use_robot = True
@@ -54,22 +54,21 @@ def construct_goal_from_perception():
         print('env stopped')
 
 
-def calibrate(use_robot=True, wrist=None):
+def calibrate(use_robot=True, reset_robot=True, wrist=None):
     exposure_time = 5
     env = RealEnv(
         use_camera=True,
-        WH=[1280, 720],
+        WH=[640, 480],
         obs_fps=5,
         n_obs_steps=2,
         use_robot=use_robot,
         speed=100,
         wrist=wrist,
     )
-    env.use_hand_eye = True
 
     try:
         env.start(exposure_time=exposure_time)
-        if use_robot:
+        if use_robot and reset_robot:
             env.reset_robot()
         print('env started')
         time.sleep(exposure_time)
@@ -90,7 +89,7 @@ if __name__ == "__main__":
     parser.add_argument("--examine_points", action="store_true")
     args = parser.parse_args()
     if args.calibrate:
-        calibrate()
+        calibrate(reset_robot=False)
     elif args.calibrate_fixed:  # only calibrate fixed cameras
         calibrate(use_robot=False)
     elif args.construct_goal:

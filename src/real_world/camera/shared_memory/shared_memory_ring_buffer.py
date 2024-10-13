@@ -121,7 +121,7 @@ class SharedMemoryRingBuffer:
     def clear(self):
         self.counter.store(0)
     
-    def put(self, data: Dict[str, Union[np.ndarray, numbers.Number]], wait: bool=True):
+    def put(self, data: Dict[str, Union[np.ndarray, numbers.Number]], wait: bool=True, serial_number: str='unknown'):
         count = self.counter.load()
         next_idx = count % self.buffer_size
         # Make sure the next self.get_max_k elements in the ring buffer have at least 
@@ -143,8 +143,8 @@ class SharedMemoryRingBuffer:
                     past_iters = self.buffer_size - self.get_max_k
                     hz = past_iters / deltat
                     raise TimeoutError(
-                        'Put executed too fast {}items/{:.4f}s ~= {}Hz'.format(
-                            past_iters, deltat,hz))
+                        '[Camera {}] Put executed too fast {}items/{:.4f}s ~= {}Hz'.format(
+                            serial_number, past_iters, deltat,hz))
 
         # write to shared memory
         for key, value in data.items():

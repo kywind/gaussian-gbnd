@@ -4,7 +4,6 @@ import time
 from multiprocessing.managers import SharedMemoryManager
 import numpy as np
 import pyrealsense2 as rs
-
 from real_world.camera.single_realsense import SingleRealsense
 
 class MultiRealsense:
@@ -60,6 +59,7 @@ class MultiRealsense:
             )
         
         self.cameras = cameras
+        self.serial_numbers = serial_numbers
         self.shm_manager = shm_manager
 
     def __enter__(self):
@@ -86,7 +86,7 @@ class MultiRealsense:
             put_start_time = time.time()
         for camera in self.cameras.values():
             camera.start(wait=False, put_start_time=put_start_time)
-        
+
         if wait:
             self.start_wait()
     
@@ -99,13 +99,14 @@ class MultiRealsense:
 
     def start_wait(self):
         for camera in self.cameras.values():
+            print('processing camera {}'.format(camera.serial_number))
             camera.start_wait()
 
     def stop_wait(self):
         for camera in self.cameras.values():
             camera.join()
     
-    def get(self, k=None, out=None) -> Dict[int, Dict[str, np.ndarray]]:
+    def get(self, k=None, index=None, out=None) -> Dict[int, Dict[str, np.ndarray]]:
         """
         Return order T,H,W,C
         {
@@ -116,6 +117,10 @@ class MultiRealsense:
             1: ...
         }
         """
+        if index is not None:
+            this_out = None
+            this_out = self.cameras[self.serial_numbers[index]].get(k=k, out=this_out)
+            return this_out
         if out is None:
             out = dict()
         for i, camera in enumerate(self.cameras.values()):

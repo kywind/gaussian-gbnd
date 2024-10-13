@@ -14,8 +14,8 @@ import math
 from multiprocessing.managers import SharedMemoryManager
 from real_world.camera.multi_realsense import MultiRealsense, SingleRealsense
 
-from real_world.utils.xarm6 import XARM6
-from real_world.utils.pcd_utils import rpy_to_rotation_matrix
+from real_world.utils.xarm_wrapper import XARM7
+from real_world.utils.pcd_utils import depth2fgpcd, rpy_to_rotation_matrix
 
 
 class RealEnv:
@@ -45,8 +45,10 @@ class RealEnv:
             self.n_obs_steps = n_obs_steps
             if wrist is None:
                 wrist = '246322303954'  # default wrist camera serial number
-            self.vis_dir = 'vis_real_world'
+            self.calibrate_result_dir = 'output/latest_calibration'
             os.makedirs(self.calibrate_result_dir, exist_ok=True)
+            self.vis_dir = f'{self.calibrate_result_dir}/vis'
+            os.makedirs(self.vis_dir, exist_ok=True)
 
             self.serial_numbers = SingleRealsense.get_connected_devices_serial()
             if wrist in self.serial_numbers:
@@ -70,37 +72,38 @@ class RealEnv:
                     process_depth=process_depth,
                     verbose=verbose)
             self.realsense.set_exposure(exposure=100, gain=60)
-            self.realsense.set_white_balance()
+            self.realsense.set_white_balance(3800)
             self.last_realsense_data = None
             self.enable_color = enable_color
             self.enable_depth = enable_depth
 
-            calibration_dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
-            calibration_parameters =  cv2.aruco.DetectorParameters()
-            self.aruco_detector = cv2.aruco.ArucoDetector(calibration_dictionary, calibration_parameters)
-            self.calibration_board = cv2.aruco.GridBoard(
-                (5, 7),
-                markerLength=0.03439,
-                markerSeparation=0.00382,
-                dictionary=calibration_dictionary,
+            self.calibration_dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_250)
+            self.calibration_board = cv2.aruco.CharucoBoard(
+                size=(6, 5),
+                squareLength=0.04,
+                markerLength=0.03,
+                dictionary=self.calibration_dictionary,
             )
-            self.calibrate_result_dir = 'real_world/calibration_result'
-            os.makedirs(self.calibrate_result_dir, exist_ok=True)
-
-        self.R_cam2world = None
-        self.t_cam2world = None
-        self.R_base2world = None
-        self.t_base2world = None
+            self.calibration_parameters = cv2.aruco.DetectorParameters()
+            calibration_parameters =  cv2.aruco.CharucoParameters()
+            self.charuco_detector = cv2.aruco.CharucoDetector(
+                self.calibration_board,
+                calibration_parameters,
+            )
+            self.R_cam2world = None
+            self.t_cam2world = None
+            self.R_base2world = None
+            self.t_base2world = None
 
         self.use_robot = use_robot
         self.push_length = push_length
         if self.use_robot:
-            self.robot = XARM6(gripper_enable=gripper_enable, speed=speed)
+            self.robot = XARM7(gripper_enable=gripper_enable, speed=speed)
             self.gripper_enable = gripper_enable
 
-        self.bbox = np.array([[0.1, 0.6], [-0.25, 0.45], [-0.2, -0.01]])  # the world frame robot workspace
-        self.eef_point = np.array([[0.0, 0.0, 0.180]])  # the eef point in the gripper frame
-        self.world_y = 0.008  # the world y coordinate of the eef during action
+        self.bbox = np.array([[0.0, 0.6], [-0.35, 0.45], [-0.10, 0.05]])  # the world frame robot workspace
+        self.eef_point = np.array([[0.0, 0.0, 0.175]])  # the eef point in the gripper frame
+        self.world_y = 0.01  # the world y coordinate of the eef during action
         self.state = None
 
     # ======== start-stop API =============
@@ -170,7 +173,7 @@ class RealEnv:
             # remap key
             if get_color:
                 assert self.enable_color
-                camera_obs[f'color_{camera_idx}'] = value['color'][this_idxs]
+                camera_obs[f'color_{camera_idx}'] = value['color'][this_idxs]  # BGR
             if get_depth and isinstance(camera_idx, int):
                 assert self.enable_depth
                 camera_obs[f'depth_{camera_idx}'] = value['depth'][this_idxs] / 1000.0
@@ -219,13 +222,13 @@ class RealEnv:
         assert -eef_cur[2] > 0
 
         self.reset_robot()
-        time.sleep(0.5)
-        self.move_to_table_position([x_start, self.world_y + 0.15, z_start], yaw, wait=True)
+        # time.sleep(0.5)
+        self.move_to_table_position([x_start, self.world_y + 0.10, z_start], yaw, wait=True)
         self.move_to_table_position([x_start, self.world_y, z_start], yaw, wait=True)
-        time.sleep(0.5)
+        # time.sleep(0.5)
         self.move_to_table_position([x_end, self.world_y, z_end], yaw, wait=True)
-        self.move_to_table_position([x_end, self.world_y + 0.15, z_end], yaw, wait=True)
-        time.sleep(0.5)
+        self.move_to_table_position([x_end, self.world_y + 0.10, z_end], yaw, wait=True)
+        # time.sleep(0.5)
         self.reset_robot()
     
     def step_gripper(self, action, decoded=False):
@@ -243,7 +246,7 @@ class RealEnv:
         z_start = z_start - 0.005 * (z_end - z_start) / np.sqrt((x_end - x_start) ** 2 + (z_end - z_start) ** 2)
 
         self.reset_robot()
-        self.move_to_table_position([x_start, self.world_y + 0.15, z_start], yaw, wait=True)
+        self.move_to_table_position([x_start, self.world_y + 0.10, z_start], yaw, wait=True)
         self.move_to_table_position([x_start, self.world_y, z_start], yaw, wait=True)
         time.sleep(5)
         self.robot.close_gripper()
@@ -252,7 +255,7 @@ class RealEnv:
         self.move_to_table_position([x_end, self.world_y + 0.02, z_end], yaw, wait=True)
         self.robot.open_gripper()
         time.sleep(0.5)
-        self.move_to_table_position([x_end, self.world_y + 0.15, z_end], yaw, wait=True)
+        self.move_to_table_position([x_end, self.world_y + 0.10, z_end], yaw, wait=True)
         self.reset_robot()
 
     def move_to_table_position(self, position, yaw=None, wait=True):
@@ -428,9 +431,11 @@ class RealEnv:
     def fixed_camera_calibrate(self, visualize=True, save=True, return_results=True):
         rvecs = {}
         tvecs = {}
+        rvecs_list = []
+        tvecs_list = []
 
         # Calculate the markers
-        obs = self.get_obs()
+        obs = self.get_obs(get_depth=visualize)
         intrs = self.get_intrinsics()
         dist_coef = np.zeros(5)
 
@@ -443,27 +448,24 @@ class RealEnv:
             
             calibration_img = cv2.cvtColor(calibration_img, cv2.COLOR_BGR2GRAY)
 
-            corners, ids, rejected_img_points = self.aruco_detector.detectMarkers(calibration_img)
-            detected_corners, detected_ids, rejected_corners, recovered_ids = self.aruco_detector.refineDetectedMarkers(
-                detectedCorners=corners, 
-                detectedIds=ids,
-                rejectedCorners=rejected_img_points,
-                image=calibration_img,
-                board=self.calibration_board,
-                cameraMatrix=intr,
-                distCoeffs=dist_coef,
-            )
+            charuco_corners, charuco_ids, marker_corners, marker_ids = self.charuco_detector.detectBoard(calibration_img)
 
             if visualize:
-                calibration_img_vis = cv2.aruco.drawDetectedMarkers(calibration_img.copy(), detected_corners, detected_ids)
+                calibration_img_vis = cv2.aruco.drawDetectedMarkers(calibration_img.copy(), marker_corners, marker_ids)
                 cv2.imwrite(f'{self.vis_dir}/calibration_detected_marker_{device}.jpg', calibration_img_vis)
 
+                calibration_depth = obs[f'depth_{i}'][-1].copy()
+                calibration_depth = np.minimum(calibration_depth, 2.0)
+                calibration_depth_vis = calibration_depth / calibration_depth.max() * 255
+                calibration_depth_vis = calibration_depth_vis[:, :, np.newaxis].repeat(3, axis=2)
+                calibration_depth_vis = cv2.applyColorMap(calibration_depth_vis.astype(np.uint8), cv2.COLORMAP_JET)
+                cv2.imwrite(f'{self.vis_dir}/calibration_depth_{device}.jpg', calibration_depth_vis)
 
-            retval, rvec, tvec = cv2.aruco.estimatePoseBoard(
-                corners=detected_corners,
-                ids=detected_ids,
-                board=self.calibration_board,
-                cameraMatrix=intr,
+            retval, rvec, tvec = cv2.aruco.estimatePoseCharucoBoard(
+                charuco_corners, 
+                charuco_ids, 
+                self.calibration_board, 
+                cameraMatrix=intr, 
                 distCoeffs=dist_coef,
                 rvec=None,
                 tvec=None,
@@ -480,6 +482,8 @@ class RealEnv:
 
             rvecs[device] = rvec
             tvecs[device] = tvec
+            rvecs_list.append(rvec)
+            tvecs_list.append(tvec)
         
         if save:
             # save rvecs, tvecs
@@ -487,35 +491,54 @@ class RealEnv:
                 pickle.dump(rvecs, f)
             with open(f'{self.calibrate_result_dir}/tvecs.pkl', 'wb') as f:
                 pickle.dump(tvecs, f)
+            
+            # save rvecs, tvecs, intrinsics as numpy array
+            rvecs_list = np.array(rvecs_list)
+            tvecs_list = np.array(tvecs_list)
+            intrs = np.array(intrs)
+            with open(f'{self.calibrate_result_dir}/rvecs.npy', 'wb') as f:
+                np.save(f, rvecs_list)
+            with open(f'{self.calibrate_result_dir}/tvecs.npy', 'wb') as f:
+                np.save(f, tvecs_list)
+            with open(f'{self.calibrate_result_dir}/intrinsics.npy', 'wb') as f:
+                np.save(f, intrs)
+
         if return_results:
             return rvecs, tvecs
 
-    def calibrate(self, re_calibrate=False):
+    def calibrate(self, re_calibrate=False, visualize=True):
         if re_calibrate:
             if self.use_robot:
-                calibration_handeye_result = self.hand_eye_calibrate()
-                R_base2board = calibration_handeye_result['R_base2world']
-                t_base2board = calibration_handeye_result['t_base2world']
+                R_base2board = np.array([
+                    [1.0, 0, 0],
+                    [0, -1.0, 0],
+                    [0, 0, -1.0]
+                ])
+                t_base2board = np.array(
+                    [-0.095, 0.085, -0.01]
+                )
+                with open(f'{self.calibrate_result_dir}/base.pkl', 'wb') as f:
+                    pickle.dump({'R_base2world': R_base2board, 't_base2world': t_base2board}, f)
             else:
-                if os.path.exists(f'{self.calibrate_result_dir}/calibration_handeye_result.pkl'):
-                    with open(f'{self.calibrate_result_dir}/calibration_handeye_result.pkl', 'rb') as f:
-                        calibration_handeye_result = pickle.load(f)
-                    R_base2board = calibration_handeye_result['R_base2world']
-                    t_base2board = calibration_handeye_result['t_base2world']
+                if os.path.exists(f'{self.calibrate_result_dir}/base.pkl'):
+                    with open(f'{self.calibrate_result_dir}/base.pkl', 'rb') as f:
+                        base = pickle.load(f)
+                    R_base2board = base['R_base2world']
+                    t_base2board = base['t_base2world']
                 else:
                     R_base2board = None
                     t_base2board = None
-            rvecs, tvecs = self.fixed_camera_calibrate()
+            rvecs, tvecs = self.fixed_camera_calibrate(visualize=visualize)
             print('calibration finished')
         else:
-            with open(f'{self.calibrate_result_dir}/calibration_handeye_result.pkl', 'rb') as f:
-                calibration_handeye_result = pickle.load(f)
             with open(f'{self.calibrate_result_dir}/rvecs.pkl', 'rb') as f:
                 rvecs = pickle.load(f)
             with open(f'{self.calibrate_result_dir}/tvecs.pkl', 'rb') as f:
                 tvecs = pickle.load(f)
-            R_base2board = calibration_handeye_result['R_base2world']
-            t_base2board = calibration_handeye_result['t_base2world']
+            with open(f'{self.calibrate_result_dir}/base.pkl', 'rb') as f:
+                base = pickle.load(f)
+            R_base2board = base['R_base2world']
+            t_base2board = base['t_base2world']
 
         self.R_cam2world = {}
         self.t_cam2world = {}
@@ -528,6 +551,97 @@ class RealEnv:
             t_world2cam = tvecs[device][:, 0]
             self.R_cam2world[device] = R_world2cam.T
             self.t_cam2world[device] = -R_world2cam.T @ t_world2cam
+        
+        if visualize:
+            self.verify_eef_points()
+    
+    def verify_eef_points(self):
+        if self.last_realsense_data is None:
+            _ = self.get_obs()
+        eef_pos = self.get_eef_points()
+        extr = self.get_extrinsics()
+        intr = self.get_intrinsics()
+        for i in range(self.n_fixed_cameras):
+            device = self.serial_numbers[i]
+            R_cam2world = extr[0][i]
+            t_cam2world = extr[1][i]
+            R_world2cam = R_cam2world.T
+            t_world2cam = -R_cam2world.T @ t_cam2world
+            eef_pos_in_cam = R_world2cam @ eef_pos.T + t_world2cam[:, np.newaxis]
+            eef_pos_in_cam = eef_pos_in_cam.T
+            fx, fy, cx, cy = intr[i][0, 0], intr[i][1, 1], intr[i][0, 2], intr[i][1, 2]
+            eef_pos_in_cam = eef_pos_in_cam / eef_pos_in_cam[:, 2][:, np.newaxis]
+            eef_pos_in_cam = eef_pos_in_cam[:, :2]
+            eef_pos_in_cam[:, 0] = eef_pos_in_cam[:, 0] * fx + cx
+            eef_pos_in_cam[:, 1] = eef_pos_in_cam[:, 1] * fy + cy
+            eef_pos_in_cam = eef_pos_in_cam.astype(int)
+            color_img = self.last_realsense_data[i]['color'][-1].copy()
+            for pos in eef_pos_in_cam:
+                cv2.circle(color_img, tuple(pos), 5, (255, 0, 0), -1)
+            eef_pos_axis = np.array([[[0, 0, 0], [0, 0, 0.1]], [[0, 0, 0], [0, 0.1, 0]], [[0, 0, 0], [0.1, 0, 0]]])
+            axis_colors = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
+            for j, axis in enumerate(eef_pos_axis):
+                axis_eef = axis + eef_pos[0]
+                axis_in_cam = R_world2cam @ axis_eef.T + t_world2cam[:, np.newaxis]
+                axis_in_cam = axis_in_cam.T
+                axis_in_cam = axis_in_cam / axis_in_cam[:, 2][:, np.newaxis]
+                axis_in_cam = axis_in_cam[:, :2]
+                axis_in_cam[:, 0] = axis_in_cam[:, 0] * fx + cx
+                axis_in_cam[:, 1] = axis_in_cam[:, 1] * fy + cy
+                axis_in_cam = axis_in_cam.astype(int)
+                cv2.line(color_img, tuple(axis_in_cam[0]), tuple(axis_in_cam[1]), axis_colors[j], 2)
+            cv2.imwrite(f'{self.vis_dir}/eef_in_cam_{device}.jpg', color_img)
+            
+        vis_3d = True
+        if vis_3d:
+            import open3d as o3d
+            points_list = []
+            colors_list = []
+            for i in range(self.n_fixed_cameras):
+                device = self.serial_numbers[i]
+                color_img = self.last_realsense_data[i]['color'][-1].copy()
+                depth_img = self.last_realsense_data[i]['depth'][-1].copy() / 1000.0
+                intr = self.get_intrinsics()[i]
+                extr = self.get_extrinsics()
+                mask = np.logical_and(depth_img > 0, depth_img < 2.0).reshape(-1)
+                mask = mask[:, None].repeat(3, axis=1)
+                points = depth2fgpcd(depth_img, intr).reshape(-1, 3)
+                colors = color_img.reshape(-1, 3)[:, ::-1]
+                points = points[mask].reshape(-1, 3)
+                colors = colors[mask].reshape(-1, 3)
+                R_cam2world = extr[0][i]
+                t_cam2world = extr[1][i]
+                points = R_cam2world @ points.T + t_cam2world[:, np.newaxis]
+                points_list.append(points.T)
+                colors_list.append(colors)
+
+            points = np.concatenate(points_list, axis=0)
+            colors = np.concatenate(colors_list, axis=0)
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(points)
+            pcd.colors = o3d.utility.Vector3dVector(colors / 255)
+            
+            pcd = pcd.crop(o3d.geometry.AxisAlignedBoundingBox(min_bound=self.bbox[:, 0], max_bound=self.bbox[:, 1]))
+            o3d.visualization.draw_geometries([pcd])
+            pcd = pcd.voxel_down_sample(voxel_size=0.001)
+            outliers = None
+            new_outlier = None
+            rm_iter = 0
+            while new_outlier is None or len(new_outlier.points) > 0:
+                _, inlier_idx = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0 + rm_iter * 0.5)
+                new_pcd = pcd.select_by_index(inlier_idx)
+                new_outlier = pcd.select_by_index(inlier_idx, invert=True)
+                if outliers is None:
+                    outliers = new_outlier
+                else:
+                    outliers += new_outlier
+                pcd = new_pcd
+                rm_iter += 1
+
+            pcd_eef = o3d.geometry.PointCloud()
+            pcd_eef.points = o3d.utility.Vector3dVector(eef_pos)
+            pcd_eef.colors = o3d.utility.Vector3dVector(np.array([[0, 1, 0]]))
+            o3d.visualization.draw_geometries([pcd, pcd_eef])
 
     def get_eef_points(self):
         assert self.R_base2world is not None

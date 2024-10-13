@@ -5,14 +5,15 @@ import time
 import traceback
 
 
-class XARM6:
+class XARM7:
     def __init__(
         self, 
-        interface="192.168.1.209", 
-        init_pose=[196.2, -1.6, 434, 179.2, 0, 0.3],
-        init_servo_angle=[0, -60, -30, 0, 90, 0],
+        interface="192.168.1.196", 
+        init_pose=[256.7, 5.1, 400.1, 178.9, 0.0, 1.4],
+        init_servo_angle=[0.0, -45.0, 0.0, 30.0, 0.0, 75.0, 0.0],
         speed=50,  # mm/s
-        gripper_enable=True
+        radian_speed=None,  # rad/s
+        gripper_enable=True,
     ):
         self.pprint("xArm-Python-SDK Version:{}".format(version.__version__))
         self.alive = True

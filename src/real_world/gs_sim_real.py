@@ -1,17 +1,9 @@
 import argparse
 import numpy as np
 import torch
-import torch.nn.functional as F
-import open3d as o3d
 import time
-import cv2
-import math
 import os
 import yaml
-import glob
-from functools import partial
-import copy
-from PIL import Image
 
 from utils.real_env import RealEnv
 from utils.perception_module import PerceptionModule
@@ -80,24 +72,6 @@ def main(args, config, gs_config):
             act = torch.tensor([[0.2, 0.0, 0.0], [0.4, 0.0, 0.0]]).to(device)
             gs_trainer.rollout_and_render(dm, env, act, vis_dir=vis_dir_rollout)
             env.step(act.detach().cpu().numpy(), decoded=True)
-
-            # save
-            # act_save = res['act_seq'][0].detach().cpu().numpy()  # (action_dim,)
-            # act_all_save = res['act_seq'].detach().cpu().numpy()  # (n_look_forward, action_dim)
-            # state_real_save = state_real.detach().cpu().numpy()
-            # assert act_all_save.shape[0] == n_look_ahead
-            # assert state_pred_all_save.shape[0] == n_look_ahead
-            # np.savez(
-            #     os.path.join(save_dir, f'interaction_{i}.npz'),
-            #     act=act_save,
-            #     act_all=act_all_save,
-            #     state_pred=state_pred_save,
-            #     state_pred_all=state_pred_all_save,
-            #     pcd_real=pcd_real,
-            #     state_real=state_real_save,
-            #     state_init=state_init_save,
-            # )
-            # input('Press Enter to continue')
 
     finally:
         env.stop()

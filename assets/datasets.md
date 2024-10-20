@@ -1,3 +1,13 @@
+## Real World Datasets
+```
+- Data
+  -- camera_*: Raw data captured from the RealSense camera
+    --- idx.jpg    : RGB images
+    --- idx_depth.png  : Depth images
+    --- seg/    : Segmentation masks (mask_*.png)
+    --- foreground/ : Foreground masks of the object (foreground_*.png)
+```
+
 ## Rope and Toy Animals
 ```
 weight_im_values=50.0

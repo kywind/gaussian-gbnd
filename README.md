@@ -31,8 +31,9 @@ python setup.py install
 cd ..
 ```
 
-3. Install GroundedSAM
+3. Install [Grounded SAM](https://github.com/IDEA-Research/Grounded-Segment-Anything)
 ```
+python -m pip install -e segment_anything
 git clone git@github.com:IDEA-Research/GroundingDINO.git
 cd GroundingDINO
 python setup.py install
@@ -46,14 +47,13 @@ gdown 1kN4trMTo5cavUqRSkYu0uzJq4mcL_ul_
 ## Data Preparation
 Data should be stored in ```{base_path}/data``` and ```{base_path}/ckpts``` for the raw recording data and the tracking result data separately.
 
-**TODO:** describe data format more specifically.
-
 ## Tracking Optimization
 
 1. Prepare data to obtain the mask, initial point cloud, and metadata for the object
 ```
 cd src/tracking
 python utils/obtain_mask.py --text_prompt "nylon rope" --data_path $data_path # obtain object mask
+python utils/merge_masks.py --data_path $data_path # obtain the foreground images of the object
 python utils/init_pcd.py --data_path $data_path # obtain the initial point cloud
 python utils/metadata.py --data_path $data_path # obtain metadata for training
 ```
@@ -63,7 +63,7 @@ python utils/metadata.py --data_path $data_path # obtain metadata for training
 python train_gs.py --sequence $episode --exp_name $exp_name --weight_im $weight_im --weight_rigid $weight_rigid --weight_seg $weight_seg --weight_soft_col_cons $weight_soft_col_cons --weight_bg $weight_bg --weight_iso $weight_iso --weight_rot $weight_rot --num_knn $num_knn --metadata_path $metadata_path --init_pt_cld_path=$init_pt_cld_path --scale_scene_radius=$scale_scene_radius
 ```
 
-We provide different configurations for various objects in [assets/datasets.md](assets/datasets.md).
+We provide a short description of the data captured from real world and the different configurations for various objects in [assets/datasets.md](assets/datasets.md).
 
 
 ## Training dynamics model

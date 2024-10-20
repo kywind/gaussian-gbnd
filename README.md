@@ -1,18 +1,38 @@
-# GS-Dynamics
+<div align="center">
+
+# Dynamic 3D Gaussian Tracking for Graph-Based Neural Dynamics Modeling
+
+[Project Page](https://gs-dynamics.github.io/) | [Video](https://gs-dynamics.github.io/static/website_gaussian_gbnd-4bfc95648bcf3b3feedd0535c3187e7e.mp4)
+
+</div>
+
+<div align="center">
+  <img src="assets/teaser.png" style="width:80%" />
+</div>
+
+---
 
 ## Installation
-Steps:
-- Install GroundingDINO
-- Install diff-gaussian-rasterization
-- Download GroundingDINO and SegmentAnything weights
+
+1. Setup conda environment
+```
+conda create -n gs-dynamics python=3.9
+conda activate gs-dynamics
+pip install -r requirements.txt
+```
+
+2. Install Gaussian Rasterization
 ```
 mkdir third-party
-mkdir weights
 cd third-party
 git clone git@github.com:JonathonLuiten/diff-gaussian-rasterization-w-depth.git
 cd diff-gaussian-rasterization-w-depth
 python setup.py install
 cd ..
+```
+
+3. Install GroundedSAM
+```
 git clone git@github.com:IDEA-Research/GroundingDINO.git
 cd GroundingDINO
 python setup.py install
@@ -24,19 +44,39 @@ gdown 1kN4trMTo5cavUqRSkYu0uzJq4mcL_ul_
 ```
 
 ## Data Preparation
-Data should be stored in ```{base_path}/data``` and ```{base_path}/ckpts``` for the raw recording
-data and the tracking result data separately.
+Data should be stored in ```{base_path}/data``` and ```{base_path}/ckpts``` for the raw recording data and the tracking result data separately.
 
 **TODO:** describe data format more specifically.
 
+## Tracking Optimization
+
+1. Prepare data to obtain the mask, initial point cloud, and metadata for the object
+```
+cd src/tracking
+python utils/obtain_mask.py --text_prompt "nylon rope" --data_path $data_path # obtain object mask
+python utils/init_pcd.py --data_path $data_path # obtain the initial point cloud
+python utils/metadata.py --data_path $data_path # obtain metadata for training
+```
+
+2. Run the optimization
+```
+python train_gs.py --sequence $episode --exp_name $exp_name --weight_im $weight_im --weight_rigid $weight_rigid --weight_seg $weight_seg --weight_soft_col_cons $weight_soft_col_cons --weight_bg $weight_bg --weight_iso $weight_iso --weight_rot $weight_rot --num_knn $num_knn --metadata_path $metadata_path --init_pt_cld_path=$init_pt_cld_path --scale_scene_radius=$scale_scene_radius
+```
+
+We provide different configurations for various objects in [assets/datasets.md](assets/datasets.md).
+
+
 ## Training dynamics model
-Steps:
-- Preprocess data to parse unit actions, generating ```{base_path}/preprocessed```
-- Train the model
+
+1. Prepare the data to parse unit actions,saved in ```{base_path}/preprocessed```
 ```
 cd src
 python preprocess.py --config config/rope.yaml  # preprocesses training data; rope as an example
-python train.py --config config/rope.yaml  # trains
+```
+
+2. Train the dynamics model
+```
+python train.py --config config/rope.yaml
 ```
 
 ## Evaluating dynamics prediction
@@ -46,12 +86,14 @@ python predict.py --config config/rope.yaml  # predicts on the provided validati
 ```
 
 ## Running real-world rollouts (requires a realsense camera setup)
-Steps:
-- Calibrate the cameras using the chArUcO calibration board
-- Put object in workspace, run an interactive demo to simulate interaction with the object with GS-Dynamics
+
+1. Calibrate the cameras using the chArUcO calibration board
 ```
 cd src/real_world
 python calibrate.py --calibrate  # calibrate realsense cameras
-python gs_sim_real_gradio.py --config config/rope.py
 ```
 
+2. Put object in workspace, run an interactive demo to simulate interaction with the object with GS-Dynamics
+```
+python gs_sim_real_gradio.py --config config/rope.py
+```

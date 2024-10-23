@@ -58,7 +58,7 @@ def calibrate(use_robot=True, reset_robot=True, wrist=None):
     exposure_time = 5
     env = RealEnv(
         use_camera=True,
-        WH=[640, 480],
+        WH=[1280, 720],
         obs_fps=5,
         n_obs_steps=2,
         use_robot=use_robot,

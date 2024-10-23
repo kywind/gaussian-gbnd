@@ -1,5 +1,3 @@
-torch
-torchvision
 opencv-contrib-python
 open3d
 pyyaml
@@ -8,4 +6,5 @@ h5py
 pyrealsense2
 ipdb
 atomics
+gradio
 git+https://github.com/xArm-Developer/xArm-Python-SDK.git

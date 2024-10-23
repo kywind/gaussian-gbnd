@@ -20,17 +20,14 @@ from PIL import Image
 from diff_gaussian_rasterization import GaussianRasterizer
 from diff_gaussian_rasterization import GaussianRasterizationSettings as Camera
 
-
-from utils.real_env import RealEnv
-from utils.perception_module import PerceptionModule
-from utils.pcd_utils import visualize_o3d
-from utils.gradio_utils import (draw_mask_on_image, draw_points_on_image,
+from real_world.utils.pcd_utils import visualize_o3d
+from real_world.utils.gradio_utils import (draw_mask_on_image, draw_points_on_image,
                           draw_raw_points_on_image,
                           get_latest_points_pair, get_valid_mask,
                           on_change_single_global_state)
-from gs.trainer import GSTrainer, make_video
-from gs.helpers import setup_camera
-from gs.convert import save_to_splat
+from real_world.gs.trainer import GSTrainer, make_video
+from real_world.gs.helpers import setup_camera
+from real_world.gs.convert import save_to_splat
 from render.dynamics_module import DynamicsModule
 
 
@@ -95,7 +92,7 @@ def interpolate_actions(start, target, length=0.01, pad=0):
     return waypoints
 
 
-class DynamicsVisualizer:
+class DemoVisualizer:
 
     def __init__(self, args, config, gs_config):
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -104,62 +101,50 @@ class DynamicsVisualizer:
         train_config = config['train_config']
         epoch = args.epoch
         run_name = train_config['out_dir'].split('/')[-1]
-        save_dir = f"output/gsgradio-{run_name}-model_{epoch}"
+        save_dir = f"output/demo-{run_name}-model_{epoch}"
         os.makedirs(save_dir, exist_ok=True)
-        vis_path = os.path.join(save_dir, 'env_vis')
-        os.makedirs(vis_path, exist_ok=True)
         gs_vis_path = os.path.join(save_dir, 'gs_vis')
         os.makedirs(gs_vis_path, exist_ok=True)
 
         self.save_dir = save_dir
-        self.vis_path = vis_path
         self.gs_vis_path = gs_vis_path
 
-        self.visualize_3d = False
+        self.visualize_3d = True
         self.vis_cam_id = 0
 
-        self.pm = PerceptionModule(vis_path,device)
         self.dm = DynamicsModule(config, args.epoch, device)
         self.gs_trainer = GSTrainer(gs_config, device)
 
-        self.use_robot = True
-        self.use_gripper = False
-        self.exposure_time = 5
-        self.env = RealEnv(
-            use_camera=True,
-            WH=[640, 480],
-            obs_fps=5,
-            n_obs_steps=1,
-            use_robot=self.use_robot,
-            speed=100,
-            gripper_enable=self.use_gripper,
-        )
-
-        self.save_for_demo = False
-
     def __enter__(self):
-        self.env.start(exposure_time=self.exposure_time)
-        if self.use_robot:
-            self.env.reset_robot()
-        print('env started')
-        time.sleep(self.exposure_time)
-        print('start recording')
-        self.env.calibrate(re_calibrate=False, visualize=False)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.env.stop()
-        print('env stopped')
+        print('stopped')
 
-    def reset(self, train_gs=True):
-        pcd, imgs, masks = self.pm.get_tabletop_points_env(self.env, obj_names=['rope'], return_imgs=True)
+    def reset(self, train_gs=False):
+        pcd = o3d.io.read_point_cloud('../assets/demo/pcd.ply')
+        imgs = []
+        masks = []
+        for v in range(4):
+            img = np.array(Image.open(f'../assets/demo/img_{v}.png'))
+            imgs.append(img)
+            mask = np.array(Image.open(f'../assets/demo/mask_{v}.png')) / 255
+            masks.append(mask)
+        R_list = np.load(f'../assets/demo/R_list.npy')
+        t_list = np.load(f'../assets/demo/t_list.npy')
+        intr_list = np.load(f'../assets/demo/intr_list.npy')
+
         self.imgs = imgs
         self.masks = masks
+        self.R_list = R_list
+        self.t_list = t_list
+        self.intr_list = intr_list
+
         if self.visualize_3d:
             visualize_o3d([pcd])
         
         self.gs_trainer.clear(clear_params=train_gs)
-        self.gs_trainer.update_state_env(pcd, self.env, imgs, masks)
+        self.gs_trainer.update_state_no_env(pcd, imgs, masks, R_list, t_list, intr_list, n_cameras=4)
         
         vis_dir_train = os.path.join(self.gs_vis_path, f'sim_train')
         if os.path.exists(vis_dir_train):
@@ -172,23 +157,8 @@ class DynamicsVisualizer:
             self.particle_pos = self.gs_trainer.params['means3D'].clone().detach().cpu().numpy()
             self.mean_z = self.particle_pos[:, 2].mean()
             self.actions = None
-
-            if self.save_for_demo:
-                obj_name = f'obj_{time.time()}'
-                self.obj_name = obj_name
-                curr_save_dir = os.path.join(self.save_dir, obj_name)
-                os.makedirs(curr_save_dir, exist_ok=True)
-                for v in range(4):
-                    img_save = Image.fromarray((imgs[v]).astype(np.uint8))
-                    img_save.save(os.path.join(curr_save_dir, f'img_{v}.png'))
-                    save_to_splat(
-                        pts=self.gs_trainer.params['means3D'].detach().cpu().numpy(),
-                        colors=self.gs_trainer.params['rgb_colors'].detach().cpu().numpy(),
-                        scales=torch.exp(self.gs_trainer.params['log_scales']).detach().cpu().numpy(),
-                        quats=torch.nn.functional.normalize(self.gs_trainer.params['unnorm_rotations'], dim=-1).detach().cpu().numpy(),
-                        opacities=torch.sigmoid(self.gs_trainer.params['logit_opacities']).detach().cpu().numpy(),
-                        output_file=os.path.join(curr_save_dir, 'gs_orig.splat'),
-                    )
+        # else:
+        #     self.gs_trainer.load(os.path.join('../assets/demo/R_list.npy'))
 
     @torch.no_grad()
     def step_sim(self, action):  # (2, 3)
@@ -198,21 +168,7 @@ class DynamicsVisualizer:
             shutil.rmtree(vis_dir_rollout)
         os.makedirs(vis_dir_rollout, exist_ok=True)
         self.params_prev = copy.deepcopy(self.gs_trainer.params)
-        rendervar_list, visvar_list = self.gs_trainer.rollout_and_render(self.dm, action, vis_dir=vis_dir_rollout)
-
-        if self.save_for_demo:
-            for v in range(4):
-                im_list = self.render(rendervar_list, visvar_list, cam_id=v)
-                vis_dir_rollout_temp = os.path.join(self.gs_vis_path, f'sim_rollout_temp_{v}')
-                if os.path.exists(vis_dir_rollout_temp):
-                    shutil.rmtree(vis_dir_rollout_temp)
-                os.makedirs(vis_dir_rollout_temp, exist_ok=True)
-                for i, im in enumerate(im_list):
-                    cv2.imwrite(os.path.join(vis_dir_rollout_temp, f'{i:04d}.png'), im)
-                assert self.action_name is not None and self.obj_name is not None
-                curr_save_dir = os.path.join(self.save_dir, self.obj_name, self.action_name)
-                video_dir = os.path.join(curr_save_dir, f"video_{v}.mp4")
-                make_video(vis_dir_rollout_temp, video_dir, '%04d.png', 10)
+        rendervar_list, visvar_list = self.gs_trainer.rollout_and_render(self.dm, action, vis_dir=vis_dir_rollout, remove_black=True)
 
         im_list = self.render(rendervar_list, visvar_list)
 
@@ -224,11 +180,6 @@ class DynamicsVisualizer:
 
         # update particle pos
         self.particle_pos = rendervar_list[-1]['means3D'].clone().detach().cpu().numpy()
-    
-    def step_real(self, action):  # (2, 3)
-        print('executing action in real ...')
-        action = torch.tensor([action[0, 0], action[0, 1], action[1, 0], action[1, 1]]).to(torch.float32).to(self.device)
-        self.env.step(action.detach().cpu().numpy(), decoded=True)
 
     def render(self, rendervar_list, visvar_list, cam_id=None):
         im_list = []
@@ -525,7 +476,7 @@ class DynamicsVisualizer:
         return global_state, image_draw
 
     def on_click_reset(self, global_state):
-        self.reset()
+        self.reset(train_gs=False)
         self.clear_state(global_state, target='point')
         self.init_images(global_state)
         reset_video = gr.Video(
@@ -553,18 +504,6 @@ class DynamicsVisualizer:
 
         start_im = np.array([start_im_x, start_im_y])
 
-        if self.save_for_demo:
-            obj_name = self.obj_name
-            action_name = f'action_{time.time()}'
-            self.action_name = action_name
-            curr_save_dir = os.path.join(self.save_dir, obj_name, action_name)
-            os.makedirs(curr_save_dir, exist_ok=True)
-            # save image_show
-            for v in range(4):
-                image_draw = self.update_image_draw_unpaired(Image.fromarray(self.imgs[v]), points, global_state['mask'], global_state['show_mask'], 
-                    self.gs_trainer.metadata['k'][v], self.gs_trainer.metadata['w2c'][v], global_state)
-                image_draw.save(os.path.join(curr_save_dir, f'img_{v}.png'))
-
         self.update_mean_z()
         start_world = click_to_xyz(start_im_x, start_im_y, global_state['intr'], global_state['extr'], z=self.mean_z)
         target_world = click_to_xyz(target_im_x, target_im_y, global_state['intr'], global_state['extr'], z=self.mean_z)
@@ -577,16 +516,6 @@ class DynamicsVisualizer:
         self.actions = actions
         self.update_bg()
         self.step_sim(actions)
-
-        if self.save_for_demo:
-            save_to_splat(
-                pts=self.gs_trainer.params['means3D'].detach().cpu().numpy(),
-                colors=self.gs_trainer.params['rgb_colors'].detach().cpu().numpy(),
-                scales=torch.exp(self.gs_trainer.params['log_scales']).detach().cpu().numpy(),
-                quats=torch.nn.functional.normalize(self.gs_trainer.params['unnorm_rotations'], dim=-1).detach().cpu().numpy(),
-                opacities=torch.sigmoid(self.gs_trainer.params['logit_opacities']).detach().cpu().numpy(),
-                output_file=os.path.join(curr_save_dir, 'gs_pred.splat'),
-            )
 
         global_state = self.draw_particles(global_state)
 
@@ -603,19 +532,6 @@ class DynamicsVisualizer:
             height=self.gs_trainer.metadata['h'],
         )
         return (global_state, image_draw, video_draw)
-    
-    def on_click_run_real(self, global_state):
-        if self.actions is None:
-            return global_state, global_state['images']['image_show']
-        self.step_real(self.actions)
-
-        self.reset(train_gs=False)  # load new images to self.img
-        self.init_images(global_state, draw_particles=False, update_bg=False)  # change to new images
-
-        image_draw = self.update_image_draw(global_state['images']['image_raw'], 
-                global_state['points'], global_state['mask'], global_state['show_mask'], global_state)
-
-        return (global_state, image_draw)
     
     def on_click_switch_view(self, global_state):
         self.vis_cam_id = (self.vis_cam_id + 1) % len(self.imgs)
@@ -700,7 +616,7 @@ class DynamicsVisualizer:
                 "curr_type_point": "start",
                 'editing_state': 'add_points',
             })
-            self.reset()
+            self.reset(train_gs=True)
             self.clear_state(global_state, target='point')
             global_state = self.init_images(global_state)
 
@@ -711,9 +627,6 @@ class DynamicsVisualizer:
 
                     with gr.Row():
                         run_sim = gr.Button('Run sim')
-                    
-                    with gr.Row():
-                        run_real = gr.Button('Run real')
                     
                     with gr.Row():
                         switch_view = gr.Button('Switch view')
@@ -756,10 +669,6 @@ class DynamicsVisualizer:
                     inputs=[global_state],
                     outputs=[global_state, form_image, form_video])
             
-            run_real.click(self.on_click_run_real,
-                    inputs=[global_state],
-                    outputs=[global_state, form_image])
-            
             switch_view.click(self.on_click_switch_view, 
                     inputs=[global_state],
                     outputs=[global_state, form_image, form_video])
@@ -783,5 +692,5 @@ if __name__ == '__main__':
         config = yaml.load(f, Loader=yaml.CLoader)
     with open(args.gs_config, 'r') as f:
         gs_config = yaml.load(f, Loader=yaml.CLoader)
-    with DynamicsVisualizer(args, config, gs_config) as visualizer:
+    with DemoVisualizer(args, config, gs_config) as visualizer:
         visualizer.launch(share=True)

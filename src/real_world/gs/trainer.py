@@ -71,6 +71,14 @@ class GSTrainer:
             seg_list.append(masks[c] * 1.0)
         self.update_state(pcd, rgb_list, seg_list, R_list, t_list, intr_list)
 
+    def update_state_no_env(self, pcd, imgs, masks, R_list, t_list, intr_list, n_cameras=4):  # RGB
+        rgb_list = []
+        seg_list = []
+        for c in range(n_cameras):
+            rgb_list.append(imgs[c] * masks[c][:, :, None])
+            seg_list.append(masks[c] * 1.0)
+        self.update_state(pcd, rgb_list, seg_list, R_list, t_list, intr_list)
+
     def update_state(self, pcd, img_list, seg_list, R_list, t_list, intr_list):
         pts = np.array(pcd.points).astype(np.float32)
         colors = np.array(pcd.colors).astype(np.float32)
@@ -114,7 +122,7 @@ class GSTrainer:
         params = {k: v.detach() for k, v in params.items()}
         self.params = params
 
-    def rollout_and_render(self, dm, env, action, vis_dir=None, save_images=True, overwrite_params=True):
+    def rollout_and_render(self, dm, action, vis_dir=None, save_images=True, overwrite_params=True, remove_black=False):
         assert vis_dir is not None
         assert self.params is not None
 
@@ -131,12 +139,13 @@ class GSTrainer:
         opa_0 = opa_0[~low_opa_idx]
         scales_0 = scales_0[~low_opa_idx]
 
-        # low_color_idx = rgb_0.sum(dim=-1) < 0.5
-        # xyz_0 = xyz_0[~low_color_idx]
-        # rgb_0 = rgb_0[~low_color_idx]
-        # quat_0 = quat_0[~low_color_idx]
-        # opa_0 = opa_0[~low_color_idx]
-        # scales_0 = scales_0[~low_color_idx]
+        if remove_black:
+            low_color_idx = rgb_0.sum(dim=-1) < 0.5
+            xyz_0 = xyz_0[~low_color_idx]
+            rgb_0 = rgb_0[~low_color_idx]
+            quat_0 = quat_0[~low_color_idx]
+            opa_0 = opa_0[~low_color_idx]
+            scales_0 = scales_0[~low_color_idx]
 
         eef_xyz_start = action[0]
         eef_xyz_end = action[1]

@@ -10,17 +10,13 @@ from PIL import Image
 nodename = os.uname().nodename
 
 # Grounding DINO
-import GroundingDINO.groundingdino.datasets.transforms as T
-from GroundingDINO.groundingdino.models import build_model
-from GroundingDINO.groundingdino.util.slconfig import SLConfig
-from GroundingDINO.groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
+import groundingdino.datasets.transforms as T
+from groundingdino.models import build_model
+from groundingdino.util.slconfig import SLConfig
+from groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
 
 # segment anything
-from segment_anything import (
-    sam_model_registry,
-    sam_hq_model_registry,
-    SamPredictor
-)
+from segment_anything import SamPredictor, sam_model_registry
 
 class ImageDataset(Dataset):
     def __init__(self, image_dir, transform=None):
@@ -182,41 +178,22 @@ def process_images(images, filenames, model, text_prompt, predictor, box_thresho
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("Grounded-Segment-Anything Demo", add_help=True)
-    parser.add_argument(
-        "--sam_version", type=str, default="vit_h", required=False, help="SAM ViT version: vit_b / vit_l / vit_h"
-    )
-    parser.add_argument(
-        "--sam_checkpoint", type=str, required=False, help="path to sam checkpoint file"
-    )
-    parser.add_argument(
-        "--sam_hq_checkpoint", type=str, default=None, help="path to sam-hq checkpoint file"
-    )
-    parser.add_argument(
-        "--use_sam_hq", action="store_true", help="using sam-hq for prediction"
-    )
-    parser.add_argument("--box_threshold", type=float, default=0.3, help="box threshold")
-    parser.add_argument("--text_threshold", type=float, default=0.25, help="text threshold")
-    parser.add_argument("--device", type=str, default="cpu", help="running on cpu only!, default=False")
+    parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, required=True, help="path to raw data")
-    parser.add_argument("--text_prompt", type=str, required=True, help="text prompt")
+    parser.add_argument("--text_prompt", type=str, required=True, help="white nylon rope.")
     args = parser.parse_args()
 
     # cfg
-    config_file = "utils/GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py"
-
-    grounded_checkpoint = "./pretrained_models/groundingdino_swint_ogc.pth"
-    sam_hq_checkpoint = "./pretrained_models/sam_hq_vit_h.pth"
-    sam_version = "vit_h"
-    sam_checkpoint = args.sam_checkpoint
+    config_file = "../../third-party/GroundingDINO/groundingdino/config/GroundingDINO_SwinB_cfg.py"
+    grounded_checkpoint = "../../weights/groundingdino_swinb_cogcoor.pth"
+    sam_checkpoint = "../../weights/sam_vit_h_4b8939.pth"
+    data_path = args.data_path
     text_prompt = args.text_prompt
-    use_sam_hq = True
-    text_prompt = "white nylon rope."
-    
+
     box_threshold = 0.3
     text_threshold = 0.25
     device = "cuda"
-    data_path = args.data_path
+
     for seq in os.listdir(data_path):
         image_path = os.path.join(data_path, seq)
         output_dir = image_path + "/seg"
@@ -231,10 +208,7 @@ if __name__ == "__main__":
 
         model = load_model(config_file, grounded_checkpoint, device=device)
 
-        if use_sam_hq:
-            predictor = SamPredictor(sam_hq_model_registry[sam_version](checkpoint=sam_hq_checkpoint).to(device))
-        else:
-            predictor = SamPredictor(sam_model_registry[sam_version](checkpoint=sam_checkpoint).to(device))
+        predictor = SamPredictor(sam_model_registry["default"](checkpoint=sam_checkpoint).to(device))
 
         dataset = ImageDataset(image_path, transform=transform)
         dataloader = DataLoader(dataset, batch_size=4, shuffle=False, num_workers=4)

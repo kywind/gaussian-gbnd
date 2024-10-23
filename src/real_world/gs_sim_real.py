@@ -70,7 +70,7 @@ def main(args, config, gs_config):
             
             print('executing action ...')
             act = torch.tensor([[0.2, 0.0, 0.0], [0.4, 0.0, 0.0]]).to(device)
-            gs_trainer.rollout_and_render(dm, env, act, vis_dir=vis_dir_rollout)
+            gs_trainer.rollout_and_render(dm, act, vis_dir=vis_dir_rollout)
             env.step(act.detach().cpu().numpy(), decoded=True)
 
     finally:
